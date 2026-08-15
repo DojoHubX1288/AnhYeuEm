@@ -1,282 +1,281 @@
-_G.FastAttack = true
+local Player = game:GetService("Players").LocalPlayer
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
-if _G.FastAttack then
-    local _ENV = (getgenv or getrenv or getfenv)()
+-- Đảm bảo các remote tồn tại
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Net = Modules:WaitForChild("Net")
+local RegisterAttack = Net:WaitForChild("RE/RegisterAttack")
+local RegisterHit = Net:WaitForChild("RE/RegisterHit")
+local ShootGunEvent = Net:WaitForChild("RE/ShootGunEvent")
+local GunValidator = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Validator2")
 
-    local function SafeWaitForChild(parent, childName)
-        local success, result = pcall(function()
-            return parent:WaitForChild(childName)
-        end)
-        if not success or not result then
-            warn("noooooo: " .. childName)
-        end
-        return result
-    end
+-- ===== CẤU HÌNH =====
+local Config = {
+    AttackDistance = 65,
+    AttackMobs = true,
+    AttackPlayers = false,
+    AttackCooldown = 0.01,
+    ComboResetTime = 0.3,
+    MaxCombo = 4,
+    HitboxLimbs = {"RightLowerArm", "RightUpperArm", "LeftLowerArm", "LeftUpperArm", "RightHand", "LeftHand"},
+}
+getgenv().FA_Config = Config
+getgenv().FA_Buddha = getgenv().FA_Buddha or false
+getgenv().FA_BuddhaDist = getgenv().FA_BuddhaDist or 999
+getgenv().FA_DefaultDist = getgenv().FA_DefaultDist or 65
 
-    local VirtualInputManager = game:GetService("VirtualInputManager")
-    local CollectionService = game:GetService("CollectionService")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local RunService = game:GetService("RunService")
-    local Players = game:GetService("Players")
-    local Player = Players.LocalPlayer
-
-    local Remotes = SafeWaitForChild(ReplicatedStorage, "Remotes")
-    local Validator = SafeWaitForChild(Remotes, "Validator")
-    local CommF = SafeWaitForChild(Remotes, "CommF_")
-    local CommE = SafeWaitForChild(Remotes, "CommE")
-
-    local Settings = {
-        AutoClick = true,
-        ClickDelay = 0
-    }
-
-    local Module = {}
-
-    Module.FastAttack = (function()
-        if _ENV.rz_FastAttack then
-            return _ENV.rz_FastAttack
-        end
-
-        local FastAttack = {
-            Distance = 100,
-            attackMobs = true,
-            attackPlayers = true,
-            Equipped = nil
-        }
-
-        local RegisterAttack = SafeWaitForChild(Net, "RE/RegisterAttack")
-        local RegisterHit = SafeWaitForChild(Net, "RE/RegisterHit")
-
-        local function IsAlive(character)
-            return character and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0
-        end
-
-        local function ProcessEnemies(OthersEnemies, Folder)
-            local BasePart = nil
-            for _, Enemy in Folder:GetChildren() do
-                local Head = Enemy:FindFirstChild("Head")
-                if Head and IsAlive(Enemy) and Player:DistanceFromCharacter(Head.Position) < FastAttack.Distance then
-                    if Enemy ~= Player.Character then
-                        table.insert(OthersEnemies, {Enemy, Head})
-                        BasePart = Head
-                    end
-                end
-            end
-            return BasePart
-        end
-
-        function FastAttack:Attack(BasePart, OthersEnemies)
-            if not BasePart or #OthersEnemies == 0 then
-                return
-            end
-            RegisterAttack:FireServer(Settings.ClickDelay or 0)
-            RegisterHit:FireServer(BasePart, OthersEnemies)
-        end
-
-        function FastAttack:AttackNearest()
-            local OthersEnemies = {}
-            local Part1 = ProcessEnemies(OthersEnemies, Enemies)
-            local Part2 = ProcessEnemies(OthersEnemies, Characters)
-
-            local character = Player.Character
-            if not character then
-                return
-            end
-            local equippedWeapon = character:FindFirstChildOfClass("Tool")
-
-            if equippedWeapon and equippedWeapon:FindFirstChild("LeftClickRemote") then
-                for _, enemyData in ipairs(OthersEnemies) do
-                    local enemy = enemyData[1]
-                    local direction = (enemy.HumanoidRootPart.Position - character:GetPivot().Position).Unit
-                    pcall(function()
-                        equippedWeapon.LeftClickRemote:FireServer(direction, 1)
-                    end)
-                end
-            elseif #OthersEnemies > 0 then
-                self:Attack(Part1 or Part2, OthersEnemies)
-            else
-                task.wait(0)
-            end
-        end
-
-        function FastAttack:BladeHits()
-            local Equipped = IsAlive(Player.Character) and Player.Character:FindFirstChildOfClass("Tool")
-            if Equipped and Equipped.ToolTip ~= "Gun" then
-                self:AttackNearest()
-            else
-                task.wait(0)
-            end
-        end
-
-        task.spawn(function()
-            while task.wait(Settings.ClickDelay) do
-                if Settings.AutoClick then
-                    FastAttack:BladeHits()
-                end
-            end
-        end)
-
-        _ENV.rz_FastAttack = FastAttack
-        return FastAttack
-    end)()
-end
-
--- ========== PHẦN 2: FAST ATTACK LOOP TỰ ĐỘNG ==========
-local remote, idremote
-for _, v in next, ({game.ReplicatedStorage.Util, game.ReplicatedStorage.Common, game.ReplicatedStorage.Remotes,
-                    game.ReplicatedStorage.Assets, game.ReplicatedStorage.FX}) do
-    for _, n in next, v:GetChildren() do
-        if n:IsA("RemoteEvent") and n:GetAttribute("Id") then
-            remote, idremote = n, n:GetAttribute("Id")
-        end
-    end
-    v.ChildAdded:Connect(function(n)
-        if n:IsA("RemoteEvent") and n:GetAttribute("Id") then
-            remote, idremote = n, n:GetAttribute("Id")
-        end
-    end)
-end
-
+-- Tự động cập nhật khoảng cách tấn công theo Buddha
 task.spawn(function()
-    while task.wait(0.04) do -- đã sửa từ 0.05 xuống 0.04
-        local char = game.Players.LocalPlayer.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        local parts = {}
-
-        for _, x in ipairs({workspace.Enemies, workspace.Characters}) do
-            for _, v in ipairs(x and x:GetChildren() or {}) do
-                local hrp = v:FindFirstChild("HumanoidRootPart")
-                local hum = v:FindFirstChild("Humanoid")
-
-                if v ~= char and hrp and hum and hum.Health > 0 and (hrp.Position - root.Position).Magnitude <= 60 then
-                    for _, _v in ipairs(v:GetChildren()) do
-                        if _v:IsA("BasePart") then
-                            parts[#parts + 1] = {v, _v}
-                        end
-                    end
-                end
-            end
-        end
-
-        local tool = char:FindFirstChildOfClass("Tool")
-
-        if #parts > 0 and tool and (
-            tool:GetAttribute("WeaponType") == "Melee" or
-            tool:GetAttribute("WeaponType") == "Sword" or
-            tool:GetAttribute("WeaponType") == "Blox Fruit" or
-            tool:GetAttribute("WeaponType") == "DevilFruit"
-        ) then
-
-            pcall(function()
-                require(game.ReplicatedStorage.Modules.Net):RemoteEvent("RegisterHit", true)
-                game.ReplicatedStorage.Modules.Net["RE/RegisterAttack"]:FireServer()
-
-                local head = parts[1][1]:FindFirstChild("Head")
-                if not head then return end
-
-                game.ReplicatedStorage.Modules.Net["RE/RegisterHit"]:FireServer(
-                    head,
-                    parts,
-                    {},
-                    tostring(game.Players.LocalPlayer.UserId):sub(2,4) ..
-                    tostring(coroutine.running()):sub(11,15)
-                )
-
-                cloneref(remote):FireServer(
-                    string.gsub("RE/RegisterHit",".",function(c)
-                        return string.char(
-                            bit32.bxor(string.byte(c), math.floor(workspace:GetServerTimeNow()/10%10)+1)
-                        )
-                    end),
-                    bit32.bxor(
-                        idremote + 909090,
-                        game.ReplicatedStorage.Modules.Net.seed:InvokeServer()*2
-                    ),
-                    head,
-                    parts
-                )
-            end)
-        end
+    while task.wait(0.2) do
+        pcall(function()
+            local cfg = getgenv().FA_Config
+            if typeof(cfg) ~= "table" then return end
+            cfg.AttackDistance = getgenv().FA_Buddha and getgenv().FA_BuddhaDist or getgenv().FA_DefaultDist
+        end)
     end
 end)
 
--- ========== PHẦN 3: FAST ATTACK TRONG AUTO MELEE SECTION ==========
-_G.at = true
+-- ===== CLASS FASTATTACK =====
+local FastAttack = {}
+FastAttack.__index = FastAttack
 
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local lp = Players.LocalPlayer
-
-local Net = require(ReplicatedStorage.Modules.Net)
-local CombatUtil = require(ReplicatedStorage.Modules.CombatUtil)
-
-local hitRemote = Net:RemoteEvent("RegisterHit")
-local attackRemote = ReplicatedStorage.Modules.Net:FindFirstChild("RE/RegisterAttack")
-
-local function FastAttack(target)
-    local char = lp.Character
-    if not char then return end
-    
-    local hrp = target:FindFirstChild("HumanoidRootPart")
-    local hum = target:FindFirstChild("Humanoid")
-
-    if not hrp or not hum or hum.Health <= 0 then return end
-
-    local tool = char:FindFirstChildOfClass("Tool")
-    if not tool then return end 
-
-    pcall(function()
-        local weaponName = CombatUtil:GetWeaponName(tool)
-        local uuid = tostring(lp.UserId):sub(2,4)..tostring(math.random(10000,99999)) 
-        local hitData = {{target, hrp}}
-
-        hitRemote:FireServer(hrp, hitData, nil, nil, uuid)
-        CombatUtil:ApplyDamageHighlight(target, char, weaponName, hrp, nil)
-    end)
+function FastAttack.new()
+    local self = setmetatable({
+        Debounce = 0,
+        ComboDebounce = 0,
+        ShootDebounce = 0,
+        M1Combo = 0,
+        EnemyRootPart = nil,
+        Overheat = {
+            Dragonstorm = {
+                MaxOverheat = 3,
+                Cooldown = 0,
+                TotalOverheat = 0,
+                Distance = 350,
+                Shooting = false
+            }
+        },
+        ShootsPerTarget = {
+            ["Dual Flintlock"] = 2
+        },
+        SpecialShoots = {
+            ["Skull Guitar"] = "TAP",
+            ["Bazooka"] = "Position",
+            ["Cannon"] = "Position",
+            ["Dragonstorm"] = "Overheat"
+        }
+    }, FastAttack)
+    return self
 end
 
-local function GetMobsInRange(maxDist)
-    local char = lp.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return {} end
+-- Kiểm tra entity sống
+function FastAttack:IsEntityAlive(entity)
+    local humanoid = entity and entity:FindFirstChild("Humanoid")
+    return humanoid and humanoid.Health > 0
+end
 
-    local root = char.HumanoidRootPart
-    local mobs = {}
+-- Kiểm tra stun/busy
+function FastAttack:CheckStun(Character, Humanoid, ToolTip)
+    local Stun = Character:FindFirstChild("Stun")
+    local Busy = Character:FindFirstChild("Busy")
+    if Humanoid.Sit and (ToolTip == "Sword" or ToolTip == "Melee" or ToolTip == "Blox Fruit") then
+        return false
+    elseif Stun and Stun.Value > 0 or Busy and Busy.Value then
+        return false
+    end
+    return true
+end
 
-    for _, mob in ipairs(workspace.Enemies:GetChildren()) do
-        local mHrp = mob:FindFirstChild("HumanoidRootPart")
-        local mHum = mob:FindFirstChild("Humanoid")
-
-        if mHrp and mHum and mHum.Health > 0 then
-            local dist = (mHrp.Position - root.Position).Magnitude
-            if dist <= (maxDist or 60) then
-                table.insert(mobs, mob)
+-- Lấy danh sách mục tiêu
+function FastAttack:GetBladeHits(Character, Distance)
+    local Position = Character:GetPivot().Position
+    local BladeHits = {}
+    Distance = Distance or Config.AttackDistance
+    
+    -- Tấn công Mob
+    if Config.AttackMobs then
+        for _, Enemy in ipairs(Workspace.Enemies:GetChildren()) do
+            if Enemy ~= Character and self:IsEntityAlive(Enemy) then
+                local BasePart = Enemy:FindFirstChild(Config.HitboxLimbs[math.random(#Config.HitboxLimbs)]) or Enemy:FindFirstChild("HumanoidRootPart")
+                if BasePart and (Position - BasePart.Position).Magnitude <= Distance then
+                    if not self.EnemyRootPart then
+                        self.EnemyRootPart = BasePart
+                    end
+                    table.insert(BladeHits, {Enemy, BasePart})
+                end
             end
         end
     end
-
-    return mobs
-end
-
-task.spawn(function()
-    while task.wait() do
-        if _G.at then
-            pcall(function()
-                local char = lp.Character
-                if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
-                    local mobs = GetMobsInRange(60)
-
-                    if #mobs > 0 then
-                        if attackRemote then
-                            attackRemote:FireServer()
+    
+    -- Tấn công Player (PvP)
+    if Config.AttackPlayers then
+        for _, OtherPlayer in ipairs(game:GetService("Players"):GetPlayers()) do
+            if OtherPlayer ~= Player then
+                local Enemy = OtherPlayer.Character
+                if Enemy and Enemy ~= Character and self:IsEntityAlive(Enemy) then
+                    local BasePart = Enemy:FindFirstChild("HumanoidRootPart")
+                    if BasePart and (Position - BasePart.Position).Magnitude <= Distance then
+                        if not self.EnemyRootPart then
+                            self.EnemyRootPart = BasePart
                         end
-
-                        for _, mob in ipairs(mobs) do
-                            FastAttack(mob)
-                        end
+                        table.insert(BladeHits, {Enemy, BasePart})
                     end
                 end
-            end)
+            end
         end
+    end
+    
+    return BladeHits
+end
+
+-- Lấy mục tiêu gần nhất (cho Gun)
+function FastAttack:GetClosestEnemy(Character, Distance)
+    local BladeHits = self:GetBladeHits(Character, Distance)
+    local Closest, MinDistance = nil, math.huge
+    for _, Hit in ipairs(BladeHits) do
+        local Magnitude = (Character:GetPivot().Position - Hit[2].Position).Magnitude
+        if Magnitude < MinDistance then
+            MinDistance = Magnitude
+            Closest = Hit[2]
+        end
+    end
+    return Closest
+end
+
+-- Lấy combo
+function FastAttack:GetCombo()
+    local Combo = (tick() - self.ComboDebounce) <= Config.ComboResetTime and self.M1Combo or 0
+    Combo = Combo >= Config.MaxCombo and 1 or Combo + 1
+    self.ComboDebounce = tick()
+    self.M1Combo = Combo
+    return Combo
+end
+
+-- Bắn súng
+function FastAttack:ShootInTarget(TargetPosition)
+    local Character = Player.Character
+    if not self:IsEntityAlive(Character) then return end
+    
+    local Equipped = Character:FindFirstChildOfClass("Tool")
+    if not Equipped or Equipped.ToolTip ~= "Gun" then return end
+    
+    local Cooldown = Equipped:FindFirstChild("Cooldown") and Equipped.Cooldown.Value or 0.3
+    if (tick() - self.ShootDebounce) < Cooldown then return end
+    
+    local ShootType = self.SpecialShoots[Equipped.Name] or "Normal"
+    if ShootType == "Position" or (ShootType == "TAP" and Equipped:FindFirstChild("RemoteEvent")) then
+        Equipped:SetAttribute("LocalTotalShots", (Equipped:GetAttribute("LocalTotalShots") or 0) + 1)
+        if GunValidator then GunValidator:FireServer(1) end
+        
+        if ShootType == "TAP" then
+            Equipped.RemoteEvent:FireServer("TAP", TargetPosition)
+        else
+            if ShootGunEvent then ShootGunEvent:FireServer(TargetPosition) end
+        end
+        self.ShootDebounce = tick()
+    else
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+        self.ShootDebounce = tick()
+    end
+end
+
+-- Tấn công thường (Melee / Sword)
+function FastAttack:UseNormalClick(Character, Humanoid, Cooldown)
+    self.EnemyRootPart = nil
+    local BladeHits = self:GetBladeHits(Character)
+    
+    if #BladeHits == 0 then return end
+    
+    local hitData = {[1] = nil, [2] = {}, [4] = "078da5141"}
+    for _, hit in ipairs(BladeHits) do
+        local enemy, basePart = hit[1], hit[2]
+        if not hitData[1] then
+            hitData[1] = enemy:FindFirstChild("Head") or basePart
+        end
+        table.insert(hitData[2], {[1] = enemy, [2] = basePart})
+    end
+    
+    RegisterAttack:FireServer(Cooldown)
+    RegisterHit:FireServer(unpack(hitData))
+end
+
+-- Tấn công Fruit M1
+function FastAttack:UseFruitM1(Character, Equipped, Combo)
+    local Targets = self:GetBladeHits(Character)
+    if not Targets[1] then return end
+    local Direction = (Targets[1][2].Position - Character:GetPivot().Position).Unit
+    Equipped.LeftClickRemote:FireServer(Direction, Combo)
+end
+
+-- Hàm tấn công chính
+function FastAttack:Attack()
+    if (tick() - self.Debounce) < Config.AttackCooldown then return end
+    
+    local Character = Player.Character
+    if not Character or not self:IsEntityAlive(Character) then return end
+    
+    local Humanoid = Character.Humanoid
+    local Equipped = Character:FindFirstChildOfClass("Tool")
+    if not Equipped then return end
+    
+    local ToolTip = Equipped.ToolTip
+    if not table.find({"Melee", "Blox Fruit", "Sword", "Gun"}, ToolTip) then return end
+    
+    local Cooldown = Equipped:FindFirstChild("Cooldown") and Equipped.Cooldown.Value or Config.AttackCooldown
+    if not self:CheckStun(Character, Humanoid, ToolTip) then return end
+    
+    local Combo = self:GetCombo()
+    Cooldown = Cooldown + (Combo >= Config.MaxCombo and 0.05 or 0)
+    self.Debounce = Combo >= Config.MaxCombo and ToolTip ~= "Gun" and (tick() + 0.05) or tick()
+    
+    if ToolTip == "Blox Fruit" and Equipped:FindFirstChild("LeftClickRemote") then
+        local Targets = self:GetBladeHits(Character)
+        if Targets[1] then
+            PosMon = Targets[1][2].Position
+        end
+        self:UseFruitM1(Character, Equipped, Combo)
+    elseif ToolTip == "Gun" then
+        local Target = self:GetClosestEnemy(Character, 120)
+        if Target then
+            PosMon = Target.Position
+            self:ShootInTarget(Target.Position)
+        end
+    else
+        local BladeHits = self:GetBladeHits(Character)
+        if BladeHits[1] then
+            PosMon = BladeHits[1][2].Position
+        end
+        self:UseNormalClick(Character, Humanoid, Cooldown)
+    end
+end
+
+-- ===== KHỞI CHẠY TỰ ĐỘNG =====
+print("[FastAttack] 🔄 Đang khởi tạo...")
+
+local AttackInstance = FastAttack.new()
+
+-- Chạy liên tục không cần toggle
+task.spawn(function()
+    while true do
+        pcall(function()
+            AttackInstance:Attack()
+        end)
+        task.wait()
+    end
+end)
+
+-- Phím tắt để bật/tắt PvP (Tùy chọn)
+local pvpEnabled = false
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F8 then
+        pvpEnabled = not pvpEnabled
+        Config.AttackPlayers = pvpEnabled
+        print("[FastAttack] PvP Mode:", pvpEnabled and "✅ BẬT" or "❌ TẮT")
     end
 end)
 
