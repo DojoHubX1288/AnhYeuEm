@@ -2104,8 +2104,8 @@ Initialize = Tabs.Settings:AddToggle({
 Name = "Fast Attack", 
 Description = "", 
 Default = true,
-Callback = function(true)
-  _G.Fast_Attack = true
+Callback = function(Value)
+  _G.Seriality = Value
 end})
 Bringmob = Tabs.Settings:AddToggle({
 Name = "Bring Mobs", 
